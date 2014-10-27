@@ -3,25 +3,7 @@ import xml.etree.ElementTree as ET
 import sys
 import argparse
 
-# returns the ElementTree object from the server
-def getConfig(name):
-	url = "http://10.236.34.84:8080/job/%s/config.xml" % name
-	
-	try:
-		xmlConfig = urllib2.urlopen(url)
-	except urllib2.HTTPError, e:
-		print('HTTPError %s occured for project %s') % (str(e.code), name)
-	except urllib2.URLError, e:
-		print('URLError %s occured for project %s') % (str(e.reason), name)
-	except httplib.HTTPException, e:
-		print('HTTPException occured for project %s') % (name)
-	except Exception:
-		import traceback
-		print('generic exception %s occurred for project %s') % (traceback.format_exc(), name)
-	else:
-		return ET.parse(xmlConfig)
-		
-
+########## Change these methods to match the modifications you'd like to make ##########
 def setXmlValue(xmlConfig, xmlPath, value):
 	try:
 		xmlConfig.find(xmlPath).text = value
@@ -38,58 +20,78 @@ def setCoberturaXmlValue(xmlConfig, name, lineValue, conditionalValue):
 			entry.find('int').text = conditionalValue
 		else:
 			print "Cobertura entry not found!"
+			
+def runModifications(jobName, jobConfig):
+	config = jobConfig.find('publishers')
 	
-def main(projects):
-	#First check to verify all projects exist
-	print "Verifying that all projects exist on the server...\n"
+	# set value for CheckStyle
+	setXmlValue(config, 'hudson.plugins.checkstyle.CheckStylePublisher/thresholds/unstableTotalAll', "25")
 	
-	projectList = list()
-	for p in projects:
-		if getConfig(p) is None:
-			print("Project %s does not exist on the server") % p
+	# set value for FindBugs
+	setXmlValue(config, 'hudson.plugins.findbugs.FindBugsPublisher/thresholds/unstableTotalAll', "2")
+	
+	setCoberturaXmlValue(config, "healthyTarget", 7500000, 6500000)
+	setCoberturaXmlValue(config, "unhealhtyTarget", 6500000 , 5500000)
+	setCoberturaXmlValue(config, "healthyTarget", 7500000, 6500000)
+		
+def getConfig(name):
+	url = "http://your_url:8080/job/%s/config.xml" % name
+	
+	try:
+		xmlConfig = urllib2.urlopen(url)
+	except urllib2.HTTPError, e:
+		print('HTTPError %s occured for project %s') % (str(e.code), name)
+	except urllib2.URLError, e:
+		print('URLError %s occured for project %s') % (str(e.reason), name)
+	except httplib.HTTPException, e:
+		print('HTTPException occured for project %s') % (name)
+	except Exception:
+		import traceback
+		print('generic exception %s occurred for project %s') % (traceback.format_exc(), name)
+	else:
+		return ET.parse(xmlConfig)
+
+# Verify the jobs exist on the server, and add them to a dictionary		
+def prepareJobs(projectList):
+	print "Verifying that all jobs exist on the server...\n"
+	
+	#projects = list()
+	projects = {}
+	
+	for jobName in projectList:
+		config = getConfig(jobName)
+		
+		if config is None:
+			print("Job %s does not exist on the server") % jobName
 			var = raw_input("Skip this project and continue? (Y/n)")
 			if var not in ("Y", "y"):
 				sys.exit("Script exiting")
-			
-		projectList.append(p)
-
-	for p in projectList:
-
-		print "Processing %s" % p
-
-		globalConfig = getConfig(p)
+		else:	
+			projects[jobName] = config
+			#projects.append(p)
 	
-		# if an error occurred, skip this project
-		if (globalConfig is None):
-			continue
+	return projects
 			
-		config = globalConfig.find('publishers')
-		
-		# set value for CheckStyle
-		setXmlValue(config, 'hudson.plugins.checkstyle.CheckStylePublisher/thresholds/unstableTotalAll', "25")
-		
-		# set value for FindBugs
-		setXmlValue(config, 'hudson.plugins.findbugs.FindBugsPublisher/thresholds/unstableTotalAll', "2")
-		
-		setCoberturaXmlValue(config, "healthyTarget", 7500000, 6500000)
-		setCoberturaXmlValue(config, "unhealhtyTarget", 6500000 , 5500000)
-		setCoberturaXmlValue(config, "healthyTarget", 7500000, 6500000)
+def main(projectList):
+	jobs = prepareJobs(projectList)
 
-		globalConfig.write(p + ".xml")
-		print "%s complete\n" % p
-
-		#ET.tostring(config)
-
+	for jobName, jobConfig in jobs.iteritems():
+		print "Processing %s" % jobName
+		
+		runModifications(jobName, jobConfig)
+		
+		jobConfig.write(jobName + ".xml")
+		print "%s complete\n" % jobName
 
 if __name__ == '__main__':
 	projectList = list()
 	
 	parser = argparse.ArgumentParser(description='Retrieve a Jenkins job config from the server, parse it, and POST it back.')
-	parser.add_argument('-f', '--file', help="Name of file containing one job per line", type=argparse.FileType('r'))
-	parser.add_argument('jobNames', metavar='N', nargs='*', help='job names')
+	parser.add_argument('-f', '--file', help="name of input file. It needs to contain one job per line", type=argparse.FileType('r'))
+	parser.add_argument('jobNames', metavar='N', nargs='*', help='name of the jobs')
 	
 	args = parser.parse_args()
-			
+
 	if (args.jobNames is not None):
 		projectList = projectList + args.jobNames
 	if (args.file is not None):

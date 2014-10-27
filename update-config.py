@@ -5,7 +5,7 @@ import argparse
 
 # returns the ElementTree object from the server
 def getConfig(name):
-	url = "http://[URL]/job/%s/config.xml" % name
+	url = "http://10.236.34.84:8080/job/%s/config.xml" % name
 	
 	try:
 		xmlConfig = urllib2.urlopen(url)
@@ -52,9 +52,6 @@ def main(projects):
 				sys.exit("Script exiting")
 			
 		projectList.append(p)
-				
-			#print "you entered", var
-
 
 	for p in projectList:
 
@@ -85,15 +82,17 @@ def main(projects):
 
 
 if __name__ == '__main__':
+	projectList = list()
 	
-	projects = list()
+	parser = argparse.ArgumentParser(description='Retrieve a Jenkins job config from the server, parse it, and POST it back.')
+	parser.add_argument('-f', '--file', help="Name of file containing one job per line", type=argparse.FileType('r'))
+	parser.add_argument('jobNames', metavar='N', nargs='*', help='job names')
 	
-	# if there was command line arguments, parse them as projects instead
-	if len(sys.argv) > 1:
-		for arg in sys.argv[1:]:
-			projects.append(arg)
-	else:
-		projects = ('AMP', 'Build-tools', 'DB_scripts', 'Device-Service', 'device-service-beans', 'dm-access', 'dm-caching', 'dm-core-external-beans', 'dm-criteria-evaluator', 'dm-property-retrieval-filter', 'dm-security', 'dm-update-check', 'dm-version', 'DMACS', 'DMAPE', 'DMCS', 'dmcs.properties', 'DMP', 'DMPS', 'dmps.properties', 'DSMT-SDM', 'DSMT-WAS', 'Jmx', 'Onboarding', 'Parent-pom', 'Parent-pom2', 'push-domain', 'push-nsd', 'push-scheduler', 'push-services', 'sls-error-validation'
-	)
+	args = parser.parse_args()
+			
+	if (args.jobNames is not None):
+		projectList = projectList + args.jobNames
+	if (args.file is not None):
+		projectList = projectList + [line.strip() for line in args.file]
 	
-	main(projects)
+	main(projectList)

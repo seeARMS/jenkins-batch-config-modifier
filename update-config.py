@@ -3,39 +3,58 @@ import xml.etree.ElementTree as ET
 import sys
 import argparse
 
-########## Change these methods to match the modifications you'd like to make ##########
+URL = "http://your_url_here:8080"
+
+# Edit these functions to match the modifications you'd like to make
 def setXmlValue(xmlConfig, xmlPath, value):
+"""Sets the element existing in the xmlConfig, specified by the xmlPath,
+to the specified value."""
 	try:
 		xmlConfig.find(xmlPath).text = value
 	except AttributeError, e:
 		print("AttributeError exception occurred for XML path %s = %s") % (xmlPath, value)
  
 def setCoberturaXmlValue(xmlConfig, name, lineValue, conditionalValue):
-	xPath = ".//*[@name='%s']/targets/entry" % name
-
+"""Sets both the LINE and CONDITIONAL coverages, existing in the xmlConfig, to the 
+specified values."""
+	xPath = ".//%s/targets/entry" % name
+	
+	path = xmlConfig.findall(xPath)
+	
+	if len(path) == 0:
+		raise Exception("Cobertura config not found!")
+	
 	for entry in xmlConfig.findall(xPath):
-		if entry.find('hudson.plugins.cobertura.targets.CoverageMetric') == 'LINE':
+		if entry.find('hudson.plugins.cobertura.targets.CoverageMetric').text == 'LINE':
 			entry.find('int').text = lineValue
-		elif entry.find('hudson.plugins.cobertura.targets.CoverageMetric') == 'CONDITIONAL':
+		elif entry.find('hudson.plugins.cobertura.targets.CoverageMetric').text == 'CONDITIONAL':
 			entry.find('int').text = conditionalValue
 		else:
-			print "Cobertura entry not found!"
+			print("Cobertura coverage metric not found!")
 			
-def runModifications(jobName, jobConfig):
+			
+def parseXMLTree(jobName, jobConfig):
+"""Parses the XML tree, running the modifications on individual elements."""
 	config = jobConfig.find('publishers')
-	
+
 	# set value for CheckStyle
 	setXmlValue(config, 'hudson.plugins.checkstyle.CheckStylePublisher/thresholds/unstableTotalAll', "25")
 	
 	# set value for FindBugs
 	setXmlValue(config, 'hudson.plugins.findbugs.FindBugsPublisher/thresholds/unstableTotalAll', "2")
 	
-	setCoberturaXmlValue(config, "healthyTarget", 7500000, 6500000)
-	setCoberturaXmlValue(config, "unhealhtyTarget", 6500000 , 5500000)
-	setCoberturaXmlValue(config, "healthyTarget", 7500000, 6500000)
+	try:
+		setCoberturaXmlValue(config, "healthyTarget", "7500000", "6500000")
+		setCoberturaXmlValue(config, "unhealthyTarget", "6500000", "5500000")
+		setCoberturaXmlValue(config, "failingTarget", "7500000", "6500000")
+	except Exception, e:
+		print (e.message)
+	else:
+		print(postConfig(jobName, jobConfig))
 		
 def getConfig(name):
-	url = "http://your_url:8080/job/%s/config.xml" % name
+"""Retrieves the config from the server."""
+	url = "%s/job/%s/config.xml" % (URL, name)
 	
 	try:
 		xmlConfig = urllib2.urlopen(url)
@@ -43,19 +62,35 @@ def getConfig(name):
 		print('HTTPError %s occured for project %s') % (str(e.code), name)
 	except urllib2.URLError, e:
 		print('URLError %s occured for project %s') % (str(e.reason), name)
-	except httplib.HTTPException, e:
-		print('HTTPException occured for project %s') % (name)
 	except Exception:
 		import traceback
 		print('generic exception %s occurred for project %s') % (traceback.format_exc(), name)
 	else:
 		return ET.parse(xmlConfig)
 
-# Verify the jobs exist on the server, and add them to a dictionary		
+		
+def postConfig(name, config):
+"""POSTs the config back to the server"""
+	url = "%s/job/%s/config.xml" % (URL, name)
+	data = ET.tostring(config.getroot())
+	
+	try:
+		response = urllib2.urlopen(url, data)
+	except urllib2.HTTPError, e:
+		print('HTTPError %s occured for project %s') % (str(e.code), name)
+	except urllib2.URLError, e:
+		print('URLError %s occured for project %s') % (str(e.reason), name)
+	except Exception:
+		import traceback
+		print('generic exception %s occurred for project %s') % (traceback.format_exc(), name)
+	else:
+		return response.read()
+			
 def prepareJobs(projectList):
+"""Verify the jobs exist on the server, and add them to a dictionary	"""
+
 	print "Verifying that all jobs exist on the server...\n"
 	
-	#projects = list()
 	projects = {}
 	
 	for jobName in projectList:
@@ -68,19 +103,18 @@ def prepareJobs(projectList):
 				sys.exit("Script exiting")
 		else:	
 			projects[jobName] = config
-			#projects.append(p)
 	
 	return projects
 			
 def main(projectList):
 	jobs = prepareJobs(projectList)
 
+	# Iterate over all jobs, processing each
 	for jobName, jobConfig in jobs.iteritems():
 		print "Processing %s" % jobName
 		
-		runModifications(jobName, jobConfig)
+		parseXMLTree(jobName, jobConfig)
 		
-		jobConfig.write(jobName + ".xml")
 		print "%s complete\n" % jobName
 
 if __name__ == '__main__':
@@ -92,9 +126,13 @@ if __name__ == '__main__':
 	
 	args = parser.parse_args()
 
-	if (args.jobNames is not None):
+	if args.jobNames is not None:
 		projectList = projectList + args.jobNames
-	if (args.file is not None):
+	if args.file is not None:
 		projectList = projectList + [line.strip() for line in args.file]
+		
+	# The user did not specify any jobs, so the project list is empty
+	if not projectList:
+		sys.exit("You must specify at least one job")
 	
 	main(projectList)
